@@ -93,16 +93,10 @@ func (s *MapStringScan) Get() map[string]string {
 Fetch a pending task from the API and populate a Task from the JSON response
  */
 func getPendingTask() Task {
-	resp, err := http.Get(API_URL)
-	if err != nil {
-		panic(err)
-	}
+	resp, err := http.Get(API_URL); fck(err)
 
 	var task Task
-	err = json.NewDecoder(resp.Body).Decode(&task)
-	if err != nil {
-		panic(err)
-	}
+	err = json.NewDecoder(resp.Body).Decode(&task); fck(err)
 
 	return task
 }
@@ -112,8 +106,7 @@ Get DB specific config to initialise a database connection
  */
 func getDbTaskConfig(task Task) DBTaskConfig {
 	var config DBTaskConfig
-	err := json.Unmarshal(task.RawConfig, &config)
-	fck(err)
+	err := json.Unmarshal(task.RawConfig, &config); fck(err)
 
 	return config
 }
@@ -126,8 +119,7 @@ func initDbConnection(task Task) *sql.DB {
 	case TASK_TYPE_DB_MYSQL_QUERY, TASK_TYPE_DB_MYSQL_EXEC:
 		config := getDbTaskConfig(task)
 		config.Type = "mysql"
-		db, err := sql.Open(config.Type, config.Dsn)
-		fck(err)
+		db, err := sql.Open(config.Type, config.Dsn); fck(err)
 		return db
 	default:
 		panic("Task type not recognised")
@@ -138,14 +130,11 @@ func initDbConnection(task Task) *sql.DB {
 POST the result of a task back to the API
  */
 func postJsonResponse(data interface{}) {
-	payload, err := json.Marshal(data)
-	fck(err)
+	payload, err := json.Marshal(data); fck(err)
 
-	resp, err := http.Post(API_URL, "application/json", bytes.NewBuffer(payload))
-	fck(err)
+	resp, err := http.Post(API_URL, "application/json", bytes.NewBuffer(payload)); fck(err)
 
-	contents, err := ioutil.ReadAll(resp.Body)
-	fck(err)
+	contents, err := ioutil.ReadAll(resp.Body); fck(err)
 
 	fmt.Println(string(contents))
 }
@@ -171,18 +160,15 @@ func processDbTask(task Task) {
 	db.SetMaxIdleConns(100)
 	defer db.Close()
 
-	rows, err := db.Query(task.Payload)
-	fck(err)
+	rows, err := db.Query(task.Payload); fck(err)
 
-	columnNames, err := rows.Columns()
-	fck(err)
+	columnNames, err := rows.Columns(); fck(err)
 
 	var response []map[string]string
 
 	rc := newMapStringScan(columnNames)
 	for rows.Next() {
-		err := rc.Update(rows)
-		fck(err)
+		err := rc.Update(rows); fck(err)
 		cv := rc.Get()
 
 		response = append(response, cv)
@@ -201,6 +187,9 @@ func fck(err error) {
 	}
 }
 
+/**
+GO! (haha)
+ */
 func main() {
 
 	var task = getPendingTask()
