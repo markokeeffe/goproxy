@@ -1,14 +1,14 @@
 package main
 
 import (
-	"encoding/json"
-	"database/sql"
-	"net/http"
-	"fmt"
-	_ "github.com/go-sql-driver/mysql"
-	"log"
 	"bytes"
+	"database/sql"
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
+	"log"
+	"net/http"
+	_ "github.com/go-sql-driver/mysql"
 )
 
 const (
@@ -17,22 +17,27 @@ const (
 	TASK_TYPE_DB_MYSQL_EXEC = 2
 )
 
-type MysqlTaskConfig struct {
-	Type		string
-	Dsn 		string		`json:"dsn"`
-}
+/**
+A task from the API to be executed locally, then a JSON response returned
+ */
 type Task struct {
-	RawConfig	json.RawMessage	`json:"config"`
-	Type		uint64		`json:"type"`
-	Payload		string		`json:"payload"`
-
-	Config    	MysqlTaskConfig
+	RawConfig json.RawMessage	`json:"config"`
+	Type      uint64		`json:"type"`
+	Payload   string		`json:"payload"`
 }
 
 /**
-  using a map
-*/
-type mapStringScan struct {
+Config for a DB task to initialise the DB connection
+ */
+type DBTaskConfig struct {
+	Type		string
+	Dsn 		string		`json:"dsn"`
+}
+
+/**
+Used to map rows with unknown columns from a DB query so we can add them to a JSON response
+ */
+type MapStringScan struct {
 	// cp are the column pointers
 	cp 	[]interface{}
 	// row contains the final result
@@ -41,9 +46,12 @@ type mapStringScan struct {
 	colNames []string
 }
 
-func NewMapStringScan(columnNames []string) *mapStringScan {
+/**
+Initialise a mop for a row in the DB query result that will be updated with `rows.Scan()`
+ */
+func newMapStringScan(columnNames []string) *MapStringScan {
 	lenCN := len(columnNames)
-	s := &mapStringScan{
+	s := &MapStringScan{
 		cp:       make([]interface{}, lenCN),
 		row:      make(map[string]string, lenCN),
 		colCount: lenCN,
@@ -55,7 +63,10 @@ func NewMapStringScan(columnNames []string) *mapStringScan {
 	return s
 }
 
-func (s *mapStringScan) Update(rows *sql.Rows) error {
+/**
+Update a row map from the db query result
+ */
+func (s *MapStringScan) Update(rows *sql.Rows) error {
 	if err := rows.Scan(s.cp...); err != nil {
 		return err
 	}
@@ -71,11 +82,17 @@ func (s *mapStringScan) Update(rows *sql.Rows) error {
 	return nil
 }
 
-func (s *mapStringScan) Get() map[string]string {
+/**
+Get a map representing a row from DB query results
+ */
+func (s *MapStringScan) Get() map[string]string {
 	return s.row
 }
 
-func getTask () Task {
+/**
+Fetch a pending task from the API and populate a Task from the JSON response
+ */
+func getPendingTask() Task {
 	resp, err := http.Get(API_URL)
 	if err != nil {
 		panic(err)
@@ -87,34 +104,42 @@ func getTask () Task {
 		panic(err)
 	}
 
-	switch task.Type {
-	case TASK_TYPE_DB_MYSQL_QUERY, TASK_TYPE_DB_MYSQL_EXEC:
-		var config MysqlTaskConfig
-		err = json.Unmarshal(task.RawConfig, &config)
-		if err != nil {
-			panic(err)
-		}
-		config.Type = "mysql"
-		task.Config = config
-	}
-
 	return task
 }
 
-func isDbTask (task Task) bool {
+/**
+Get DB specific config to initialise a database connection
+ */
+func getDbTaskConfig(task Task) DBTaskConfig {
+	var config DBTaskConfig
+	err := json.Unmarshal(task.RawConfig, &config)
+	fck(err)
+
+	return config
+}
+
+/**
+Initialise database connection based on the task type
+ */
+func initDbConnection(task Task) *sql.DB {
 	switch task.Type {
 	case TASK_TYPE_DB_MYSQL_QUERY, TASK_TYPE_DB_MYSQL_EXEC:
-		return true
+		config := getDbTaskConfig(task)
+		config.Type = "mysql"
+		db, err := sql.Open(config.Type, config.Dsn)
+		fck(err)
+		return db
 	default:
-		return false
+		panic("Task type not recognised")
 	}
 }
 
+/**
+POST the result of a task back to the API
+ */
 func postJsonResponse(data interface{}) {
 	payload, err := json.Marshal(data)
 	fck(err)
-
-	//fmt.Println(string(payload))
 
 	resp, err := http.Post(API_URL, "application/json", bytes.NewBuffer(payload))
 	fck(err)
@@ -125,6 +150,51 @@ func postJsonResponse(data interface{}) {
 	fmt.Println(string(contents))
 }
 
+/**
+Is the current task a database query?
+ */
+func isDbTask (task Task) bool {
+	switch task.Type {
+	case TASK_TYPE_DB_MYSQL_QUERY, TASK_TYPE_DB_MYSQL_EXEC:
+		return true
+	default:
+		return false
+	}
+}
+
+/**
+Open a DB connection, execute a query and POST the result back to the API
+ */
+func processDbTask(task Task) {
+
+	db := initDbConnection(task)
+	db.SetMaxIdleConns(100)
+	defer db.Close()
+
+	rows, err := db.Query(task.Payload)
+	fck(err)
+
+	columnNames, err := rows.Columns()
+	fck(err)
+
+	var response []map[string]string
+
+	rc := newMapStringScan(columnNames)
+	for rows.Next() {
+		err := rc.Update(rows)
+		fck(err)
+		cv := rc.Get()
+
+		response = append(response, cv)
+	}
+	rows.Close()
+
+	postJsonResponse(response)
+}
+
+/**
+Handle an error
+ */
 func fck(err error) {
 	if err != nil {
 		log.Fatal(err)
@@ -133,33 +203,9 @@ func fck(err error) {
 
 func main() {
 
-	var task = getTask()
+	var task = getPendingTask()
 
 	if isDbTask(task) {
-		db, err := sql.Open(task.Config.Type, task.Config.Dsn)
-		fck(err)
-
-		db.SetMaxIdleConns(100)
-		defer db.Close()
-
-		rows, err := db.Query(task.Payload)
-		fck(err)
-
-		columnNames, err := rows.Columns()
-		fck(err)
-
-		var response []map[string]string
-
-		rc := NewMapStringScan(columnNames)
-		for rows.Next() {
-			err := rc.Update(rows)
-			fck(err)
-			cv := rc.Get()
-
-			response = append(response, cv)
-		}
-		rows.Close()
-
-		postJsonResponse(response)
+		processDbTask(task)
 	}
 }
