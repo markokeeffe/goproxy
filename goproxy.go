@@ -9,13 +9,17 @@ import (
 	"log"
 	"net/http"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/BurntSushi/toml"
 )
 
 const (
-	API_URL = "http://taskserver:8888/"
 	TASK_TYPE_DB_MYSQL_QUERY = 1
 	TASK_TYPE_DB_MYSQL_EXEC = 2
 )
+
+type ConfigFile struct {
+	Url   string
+}
 
 /**
 A task from the API to be executed locally, then a JSON response returned
@@ -92,8 +96,8 @@ func (s *MapStringScan) Get() map[string]string {
 /**
 Fetch a pending task from the API and populate a Task from the JSON response
  */
-func getPendingTask() Task {
-	resp, err := http.Get(API_URL); fck(err)
+func getPendingTask(config ConfigFile) Task {
+	resp, err := http.Get(config.Url); fck(err)
 
 	var task Task
 	err = json.NewDecoder(resp.Body).Decode(&task); fck(err)
@@ -129,10 +133,10 @@ func initDbConnection(task Task) *sql.DB {
 /**
 POST the result of a task back to the API
  */
-func postJsonResponse(data interface{}) {
+func postJsonResponse(config ConfigFile, data interface{}) {
 	payload, err := json.Marshal(data); fck(err)
 
-	resp, err := http.Post(API_URL, "application/json", bytes.NewBuffer(payload)); fck(err)
+	resp, err := http.Post(config.Url, "application/json", bytes.NewBuffer(payload)); fck(err)
 
 	contents, err := ioutil.ReadAll(resp.Body); fck(err)
 
@@ -154,7 +158,7 @@ func isDbTask (task Task) bool {
 /**
 Open a DB connection, execute a query and POST the result back to the API
  */
-func processDbTask(task Task) {
+func processDbTask(config ConfigFile, task Task) {
 
 	db := initDbConnection(task)
 	db.SetMaxIdleConns(100)
@@ -175,7 +179,7 @@ func processDbTask(task Task) {
 	}
 	rows.Close()
 
-	postJsonResponse(response)
+	postJsonResponse(config, response)
 }
 
 /**
@@ -191,10 +195,12 @@ func fck(err error) {
 GO! (haha)
  */
 func main() {
+	var config ConfigFile
+	_, err := toml.DecodeFile("config.toml", &config); fck(err)
 
-	var task = getPendingTask()
+	var task = getPendingTask(config)
 
 	if isDbTask(task) {
-		processDbTask(task)
+		processDbTask(config, task)
 	}
 }
