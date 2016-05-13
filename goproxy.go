@@ -10,6 +10,8 @@ import (
 	"net/http"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/BurntSushi/toml"
+	"errors"
+	"time"
 )
 
 const (
@@ -18,7 +20,8 @@ const (
 )
 
 type ConfigFile struct {
-	Url   string
+	Url   		string
+	Interval	time.Duration
 }
 
 /**
@@ -34,7 +37,7 @@ type Task struct {
 Config for a DB task to initialise the DB connection
  */
 type DBTaskConfig struct {
-	Type		string
+	Type		string		`json:"type"`
 	Dsn 		string		`json:"dsn"`
 }
 
@@ -96,13 +99,20 @@ func (s *MapStringScan) Get() map[string]string {
 /**
 Fetch a pending task from the API and populate a Task from the JSON response
  */
-func getPendingTask(config ConfigFile) Task {
-	resp, err := http.Get(config.Url); fck(err)
+func getPendingTask(config ConfigFile) (Task, error) {
 
 	var task Task
-	err = json.NewDecoder(resp.Body).Decode(&task); fck(err)
 
-	return task
+	resp, err := http.Get(config.Url); fck(err)
+	rawResponse, err := ioutil.ReadAll(resp.Body); fck(err)
+
+	if string(rawResponse) == "0" {
+		return task, errors.New("No Tasks")
+	}
+
+	err = json.Unmarshal(rawResponse, &task); fck(err)
+
+	return task, nil
 }
 
 /**
@@ -122,7 +132,6 @@ func initDbConnection(task Task) *sql.DB {
 	switch task.Type {
 	case TASK_TYPE_DB_MYSQL_QUERY, TASK_TYPE_DB_MYSQL_EXEC:
 		config := getDbTaskConfig(task)
-		config.Type = "mysql"
 		db, err := sql.Open(config.Type, config.Dsn); fck(err)
 		return db
 	default:
@@ -182,6 +191,21 @@ func processDbTask(config ConfigFile, task Task) {
 	postJsonResponse(config, response)
 }
 
+func checkForTasks(config ConfigFile) bool {
+	task, err := getPendingTask(config)
+
+	if err != nil {
+		fmt.Println(err)
+		return false
+	}
+
+	if isDbTask(task) {
+		processDbTask(config, task)
+	}
+
+	return true
+}
+
 /**
 Handle an error
  */
@@ -195,12 +219,19 @@ func fck(err error) {
 GO! (haha)
  */
 func main() {
+
 	var config ConfigFile
 	_, err := toml.DecodeFile("config.toml", &config); fck(err)
 
-	var task = getPendingTask(config)
+	// Create an interval timer to check for tasks every `config.Interval` seconds
+	ticker := time.NewTicker(config.Interval * time.Second)
+	func() {
+		for {
+			select {
+			case <-ticker.C:
+			}
+			checkForTasks(config)
+		}
+	}()
 
-	if isDbTask(task) {
-		processDbTask(config, task)
-	}
 }

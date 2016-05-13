@@ -1,1 +1,2 @@
 Url = "http://taskserver:8888/"
+Interval = 10
