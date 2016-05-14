@@ -106,6 +106,8 @@ func getPendingTask(config ConfigFile) (Task, error) {
 	resp, err := http.Get(config.Url); fck(err)
 	rawResponse, err := ioutil.ReadAll(resp.Body); fck(err)
 
+	//fmt.Println(string(rawResponse))
+
 	if string(rawResponse) == "0" {
 		return task, errors.New("No Tasks")
 	}
@@ -121,6 +123,8 @@ Get DB specific config to initialise a database connection
 func getDbTaskConfig(task Task) DBTaskConfig {
 	var config DBTaskConfig
 	err := json.Unmarshal(task.RawConfig, &config); fck(err)
+	fmt.Print("Database Configuration: ")
+	fmt.Println(config)
 
 	return config
 }
@@ -131,6 +135,7 @@ Initialise database connection based on the task type
 func initDbConnection(task Task) *sql.DB {
 	switch task.Type {
 	case TASK_TYPE_DB_MYSQL_QUERY, TASK_TYPE_DB_MYSQL_EXEC:
+		fmt.Println("Initilising Database Connection...")
 		config := getDbTaskConfig(task)
 		db, err := sql.Open(config.Type, config.Dsn); fck(err)
 		return db
@@ -192,6 +197,9 @@ func processDbTask(config ConfigFile, task Task) {
 }
 
 func checkForTasks(config ConfigFile) bool {
+
+	fmt.Println("Checking for tasks...")
+
 	task, err := getPendingTask(config)
 
 	if err != nil {
@@ -223,15 +231,18 @@ func main() {
 	var config ConfigFile
 	_, err := toml.DecodeFile("config.toml", &config); fck(err)
 
+	fmt.Print("Config:")
+	fmt.Println(config)
+
+	checkForTasks(config)
+
 	// Create an interval timer to check for tasks every `config.Interval` seconds
 	ticker := time.NewTicker(config.Interval * time.Second)
-	func() {
-		for {
-			select {
-			case <-ticker.C:
-			}
-			checkForTasks(config)
+	for {
+		select {
+		case <-ticker.C:
 		}
-	}()
+		checkForTasks(config)
+	}
 
 }
