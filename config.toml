@@ -1,2 +1,3 @@
-Url = "http://localhost:8109/"
+#Url = "http://localhost:8109/"
+Url = "http://taskserver:8888/"
 Interval = 10

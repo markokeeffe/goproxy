@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/BurntSushi/toml"
@@ -62,7 +61,8 @@ const (
 )
 
 var (
-	config ConfigFile
+	config	ConfigFile
+	quit	chan bool
 )
 
 func (c *ConfigFile) Validate() error {
@@ -225,22 +225,25 @@ func processDbTask(task Task) {
 Query the task server to see if it returns a task.
 If a task is returned, process it
  */
-func checkForTasks() bool {
+func checkForTasks() {
 
-	fmt.Println("Checking for tasks...")
+	quit = make(chan bool)
 
-	task, err := getPendingTask()
+	go func() {
+		fmt.Println("Checking for tasks...")
 
-	if err != nil {
-		fmt.Println(err)
-		return false
-	}
+		task, err := getPendingTask()
 
-	if isDbTask(task) {
-		processDbTask(task)
-	}
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 
-	return true
+		if isDbTask(task) {
+			processDbTask(task)
+		}
+	}()
+
 }
 
 /**
@@ -248,13 +251,14 @@ Handle an error
  */
 func fck(err error) {
 	if err != nil {
-		log.Fatal(err)
 		jsonResponse := JsonResponse{
 			Type:	"error",
 			Body:	err,
 		}
 
 		postJsonResponse(jsonResponse)
+
+		quit <- true
 	}
 }
 
@@ -292,5 +296,4 @@ func main() {
 		}
 		checkForTasks()
 	}
-
 }
