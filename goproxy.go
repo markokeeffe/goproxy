@@ -196,6 +196,10 @@ func processDbTask(config ConfigFile, task Task) {
 	postJsonResponse(config, response)
 }
 
+/**
+Query the task server to see if it returns a task.
+If a task is returned, process it
+ */
 func checkForTasks(config ConfigFile) bool {
 
 	fmt.Println("Checking for tasks...")
