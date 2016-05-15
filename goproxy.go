@@ -49,9 +49,12 @@ type MapStringScan struct {
 	colNames []string
 }
 
+/**
+Used to return responses to the task server e.g. `{"type": "error", "body": "Invalid API Key."}`
+ */
 type JsonResponse struct {
-	Type	string
-	Body	interface{}
+	Type	string		`json:"type"`
+	Body	interface{}	`json:"body"`
 }
 
 
@@ -65,6 +68,9 @@ var (
 	quit	chan bool
 )
 
+/**
+Validate the config object - it must have an API key
+ */
 func (c *ConfigFile) Validate() error {
 	if "" == c.ApiKey {
 		return errors.New("Invalid API Key.")
@@ -213,12 +219,10 @@ func processDbTask(task Task) {
 	}
 	rows.Close()
 
-	jsonResponse := JsonResponse{
+	postJsonResponse(JsonResponse{
 		Type:	"success",
 		Body:	response,
-	}
-
-	postJsonResponse(jsonResponse)
+	})
 }
 
 /**
@@ -227,6 +231,7 @@ If a task is returned, process it
  */
 func checkForTasks() {
 
+	// Create a channel to execute this iteration of task fetching - can be closed on error without killing the exe
 	quit = make(chan bool)
 
 	go func() {
@@ -251,13 +256,13 @@ Handle an error
  */
 func fck(err error) {
 	if err != nil {
-		jsonResponse := JsonResponse{
+		// POST the error back to the task server
+		postJsonResponse(JsonResponse{
 			Type:	"error",
 			Body:	err,
-		}
+		})
 
-		postJsonResponse(jsonResponse)
-
+		// Close the currently running channel
 		quit <- true
 	}
 }
