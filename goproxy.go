@@ -12,16 +12,13 @@ import (
 	"github.com/BurntSushi/toml"
 	"errors"
 	"time"
-)
-
-const (
-	TASK_TYPE_DB_MYSQL_QUERY = 1
-	TASK_TYPE_DB_MYSQL_EXEC = 2
+	"flag"
 )
 
 type ConfigFile struct {
 	Url   		string
 	Interval	time.Duration
+	ApiKey		string
 }
 
 /**
@@ -51,6 +48,29 @@ type MapStringScan struct {
 	row      map[string]string
 	colCount int
 	colNames []string
+}
+
+type JsonResponse struct {
+	Type	string
+	Body	interface{}
+}
+
+
+const (
+	TASK_TYPE_DB_MYSQL_QUERY = 1
+	TASK_TYPE_DB_MYSQL_EXEC = 2
+)
+
+var (
+	config ConfigFile
+)
+
+func (c *ConfigFile) Validate() error {
+	if "" == c.ApiKey {
+		return errors.New("Invalid API Key.")
+	}
+
+	return nil
 }
 
 /**
@@ -99,7 +119,7 @@ func (s *MapStringScan) Get() map[string]string {
 /**
 Fetch a pending task from the API and populate a Task from the JSON response
  */
-func getPendingTask(config ConfigFile) (Task, error) {
+func getPendingTask() (Task, error) {
 
 	var task Task
 
@@ -147,8 +167,8 @@ func initDbConnection(task Task) *sql.DB {
 /**
 POST the result of a task back to the API
  */
-func postJsonResponse(config ConfigFile, data interface{}) {
-	payload, err := json.Marshal(data); fck(err)
+func postJsonResponse(response JsonResponse) {
+	payload, err := json.Marshal(response); fck(err)
 
 	resp, err := http.Post(config.Url, "application/json", bytes.NewBuffer(payload)); fck(err)
 
@@ -172,7 +192,7 @@ func isDbTask (task Task) bool {
 /**
 Open a DB connection, execute a query and POST the result back to the API
  */
-func processDbTask(config ConfigFile, task Task) {
+func processDbTask(task Task) {
 
 	db := initDbConnection(task)
 	db.SetMaxIdleConns(100)
@@ -193,18 +213,23 @@ func processDbTask(config ConfigFile, task Task) {
 	}
 	rows.Close()
 
-	postJsonResponse(config, response)
+	jsonResponse := JsonResponse{
+		Type:	"success",
+		Body:	response,
+	}
+
+	postJsonResponse(jsonResponse)
 }
 
 /**
 Query the task server to see if it returns a task.
 If a task is returned, process it
  */
-func checkForTasks(config ConfigFile) bool {
+func checkForTasks() bool {
 
 	fmt.Println("Checking for tasks...")
 
-	task, err := getPendingTask(config)
+	task, err := getPendingTask()
 
 	if err != nil {
 		fmt.Println(err)
@@ -212,7 +237,7 @@ func checkForTasks(config ConfigFile) bool {
 	}
 
 	if isDbTask(task) {
-		processDbTask(config, task)
+		processDbTask(task)
 	}
 
 	return true
@@ -224,7 +249,25 @@ Handle an error
 func fck(err error) {
 	if err != nil {
 		log.Fatal(err)
+		jsonResponse := JsonResponse{
+			Type:	"error",
+			Body:	err,
+		}
+
+		postJsonResponse(jsonResponse)
 	}
+}
+
+/**
+Build config object from `config.toml` file and a provided API key command line argument (-key)
+ */
+func init() {
+	_, err := toml.DecodeFile("config.toml", &config); fck(err)
+
+	var apiKey = flag.String("key", "", "Digistorm API Key.")
+	flag.Parse()
+
+	config.ApiKey = *apiKey
 }
 
 /**
@@ -232,13 +275,14 @@ GO! (haha)
  */
 func main() {
 
-	var config ConfigFile
-	_, err := toml.DecodeFile("config.toml", &config); fck(err)
+	err := config.Validate();
+	if (err != nil) {
+		fck(err)
+		return
+	}
 
-	fmt.Print("Config:")
-	fmt.Println(config)
-
-	checkForTasks(config)
+	// Check for tasks immediately
+	checkForTasks()
 
 	// Create an interval timer to check for tasks every `config.Interval` seconds
 	ticker := time.NewTicker(config.Interval * time.Second)
@@ -246,7 +290,7 @@ func main() {
 		select {
 		case <-ticker.C:
 		}
-		checkForTasks(config)
+		checkForTasks()
 	}
 
 }
