@@ -96,7 +96,7 @@ func (p *Program) run() {
 	checkForTasks()
 
 	parsedInterval, err := time.ParseDuration(fmt.Sprintf("%ds", config.Interval))
-	fck(err)
+	errCheck(err)
 
 	// Create an interval timer to check for tasks every `config.Interval` seconds
 	ticker := time.NewTicker(parsedInterval)
@@ -141,12 +141,12 @@ func loadConfiguration() {
 	configFilePath := path.Join(path.Dir(filename), "conf.json")
 
 	file, err := os.Open(configFilePath)
-	if fck(err) == true {
+	if errCheckFatal(err) == true {
 		return
 	}
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&config)
-	if fck(err) == true {
+	if errCheckFatal(err) == true {
 		return
 	}
 
@@ -167,9 +167,9 @@ func loadConfiguration() {
 
 	if configChanged == true {
 		configData, err := json.Marshal(config)
-		fck(err)
+		errCheckFatal(err)
 		err = ioutil.WriteFile(configFilePath, configData, 0644)
-		fck(err)
+		errCheckFatal(err)
 	}
 
 }
@@ -225,25 +225,23 @@ func getPendingTask() (Task, error) {
 	var task Task
 
 	req, err := http.NewRequest("GET", config.Url, nil)
-	fck(err)
+	errCheckPostback(err)
 
 	req.Header.Set("X-Digistorm-Key", config.ApiKey)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	fck(err)
+	errCheckPostback(err)
 
 	rawResponse, err := ioutil.ReadAll(resp.Body)
-	fck(err)
-
-	//fmt.Println(string(rawResponse))
+	errCheckPostback(err)
 
 	if string(rawResponse) == "0" {
 		return task, errors.New("No Tasks")
 	}
 
 	err = json.Unmarshal(rawResponse, &task)
-	fck(err)
+	errCheckPostback(err)
 
 	fmt.Print("Task found: ")
 	fmt.Println(task.Id)
@@ -257,7 +255,7 @@ Get DB specific config to initialise a database connection
 func getDbTaskConfig(task Task) DBTaskConfig {
 	var dbConfig DBTaskConfig
 	err := json.Unmarshal(task.RawConfig, &dbConfig)
-	fck(err)
+	errCheckPostback(err)
 	fmt.Print("Database Configuration: ")
 	fmt.Println(dbConfig)
 
@@ -273,7 +271,7 @@ func initDbConnection(task Task) *sql.DB {
 		fmt.Println("Initilising Database Connection...")
 		config := getDbTaskConfig(task)
 		db, err := sql.Open(config.Type, config.Dsn)
-		fck(err)
+		errCheckPostback(err)
 		return db
 	default:
 		panic("Task type not recognised")
@@ -285,20 +283,20 @@ POST the result of a task back to the API
 */
 func postJsonResponse(response JsonResponse) {
 	payload, err := json.Marshal(response)
-	fck(err)
+	errCheck(err)
 
 	req, err := http.NewRequest("POST", config.Url, bytes.NewBuffer(payload))
-	fck(err)
+	errCheck(err)
 
 	req.Header.Set("X-Digistorm-Key", config.ApiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	fck(err)
+	errCheck(err)
 
 	contents, err := ioutil.ReadAll(resp.Body)
-	fck(err)
+	errCheck(err)
 
 	fmt.Println(string(contents))
 }
@@ -325,17 +323,17 @@ func processDbTask(task Task) {
 	defer db.Close()
 
 	rows, err := db.Query(task.Payload)
-	fck(err)
+	errCheckPostback(err)
 
 	columnNames, err := rows.Columns()
-	fck(err)
+	errCheckPostback(err)
 
 	var response []map[string]string
 
 	rc := newMapStringScan(columnNames)
 	for rows.Next() {
 		err := rc.Update(rows)
-		fck(err)
+		errCheckPostback(err)
 		cv := rc.Get()
 
 		response = append(response, cv)
@@ -361,7 +359,6 @@ func checkForTasks() {
 		fmt.Println("Checking for tasks...")
 
 		task, err := getPendingTask()
-
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -377,15 +374,44 @@ func checkForTasks() {
 /**
 Handle an error - returns true if error was handled
 */
-func fck(err error) bool {
+func errCheck(err error) bool {
 	if err != nil {
 		fmt.Println(err)
 
-		//// POST the error back to the task server
-		//postJsonResponse(JsonResponse{
-		//	Type: "error",
-		//	Body: err,
-		//})
+		// Close the currently running channel
+		quit <- true
+
+		return true
+	}
+
+	return false
+}
+
+/**
+Handle an error - returns true if error was handled
+*/
+func errCheckFatal(err error) {
+	if err != nil {
+
+		// Close the currently running channel
+		quit <- true
+
+		log.Fatal(err)
+	}
+}
+
+/**
+Handle an error - returns true if error was handled
+*/
+func errCheckPostback(err error) bool {
+	if err != nil {
+		fmt.Println(err)
+
+		// POST the error back to the task server
+		postJsonResponse(JsonResponse{
+			Type: "error",
+			Body: err,
+		})
 
 		// Close the currently running channel
 		quit <- true
@@ -405,8 +431,7 @@ func main() {
 
 	err := config.Validate()
 	if err != nil {
-		fck(err)
-		return
+		errCheckFatal(err)
 	}
 
 	svcConfig := &service.Config{
@@ -419,14 +444,12 @@ func main() {
 
 	s, err := service.New(program, svcConfig)
 	if err != nil {
-		fck(err)
-		return
+		errCheckFatal(err)
 	}
 
 	svcLogger, err = s.Logger(nil)
 	if err != nil {
-		fck(err)
-		return
+		errCheckFatal(err)
 	}
 
 	if len(svcFlag) != 0 {
@@ -440,6 +463,6 @@ func main() {
 	}
 
 	err = s.Run()
-	fck(err)
+	errCheckFatal(err)
 
 }
