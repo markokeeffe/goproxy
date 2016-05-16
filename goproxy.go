@@ -27,18 +27,24 @@ const (
 )
 
 var (
-	svcFlag   string
-	svcLogger service.Logger
-	config    ConfigFile
-	quit      chan bool
+	svcFlag   string         // value of the `-service` command line argument e.g. `-service start`
+	svcLogger service.Logger // logger for the service
+	config    ConfigFile     // global config
+	quit      chan bool      // A channel for each iteration of the task fetch that can be stopped
 )
 
+/**
+Container for the executable program that can be run as a service
+*/
 type Program struct {
 	Exit    chan struct{}
 	Service service.Service
 	Cmd     *exec.Cmd
 }
 
+/**
+Configuration from the config.json file in the same directory as the executable
+*/
 type ConfigFile struct {
 	Url      string `json:"url"`
 	Interval int    `json:"interval"`
