@@ -40,9 +40,9 @@ type Program struct {
 }
 
 type ConfigFile struct {
-	Url      string        `json:"url"`
-	Interval int `json:"interval"`
-	ApiKey   string        `json:"key"`
+	Url      string `json:"url"`
+	Interval int    `json:"interval"`
+	ApiKey   string `json:"key"`
 }
 
 /**
@@ -128,7 +128,7 @@ func (c *ConfigFile) Validate() error {
 /**
 Read in configuration from a JSON config file - this can be overridden by command line arguments.
 If any config is overridden, the `config.json` file is updated.
- */
+*/
 func loadConfiguration() {
 	apiKey := flag.String("key", "", "Digistorm API Key.")
 	apiUrl := flag.String("url", API_URL, "Digistorm API Key.")
