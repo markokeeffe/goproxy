@@ -141,14 +141,10 @@ func loadConfiguration() {
 	configFilePath := path.Join(path.Dir(filename), "conf.json")
 
 	file, err := os.Open(configFilePath)
-	if errCheckFatal(err) == true {
-		return
-	}
+	errCheckFatal(err)
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&config)
-	if errCheckFatal(err) == true {
-		return
-	}
+	errCheckFatal(err)
 
 	var configChanged bool = false
 
