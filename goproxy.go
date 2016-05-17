@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/kardianos/service"
 	"io/ioutil"
@@ -22,6 +23,8 @@ import (
 const (
 	TASK_TYPE_DB_MYSQL_QUERY = 1
 	TASK_TYPE_DB_MYSQL_EXEC  = 2
+	TASK_TYPE_DB_MSSQL_QUERY = 3
+	TASK_TYPE_DB_MSSQL_EXEC  = 4
 	API_URL                  = "http://taskserver:8888/"
 	INTERVAL                 = 10
 )
@@ -268,16 +271,11 @@ func getDbTaskConfig(task Task) DBTaskConfig {
 Initialise database connection based on the task type
 */
 func initDbConnection(task Task) *sql.DB {
-	switch task.Type {
-	case TASK_TYPE_DB_MYSQL_QUERY, TASK_TYPE_DB_MYSQL_EXEC:
-		fmt.Println("Initilising Database Connection...")
-		config := getDbTaskConfig(task)
-		db, err := sql.Open(config.Type, config.Dsn)
-		errCheckPostback(err)
-		return db
-	default:
-		panic("Task type not recognised")
-	}
+	fmt.Println("Initilising Database Connection...")
+	config := getDbTaskConfig(task)
+	db, err := sql.Open(config.Type, config.Dsn)
+	errCheckPostback(err)
+	return db
 }
 
 /**
@@ -308,7 +306,10 @@ Is the current task a database query?
 */
 func isDbTask(task Task) bool {
 	switch task.Type {
-	case TASK_TYPE_DB_MYSQL_QUERY, TASK_TYPE_DB_MYSQL_EXEC:
+	case TASK_TYPE_DB_MYSQL_QUERY,
+		TASK_TYPE_DB_MYSQL_EXEC,
+		TASK_TYPE_DB_MSSQL_QUERY,
+		TASK_TYPE_DB_MSSQL_EXEC:
 		return true
 	default:
 		return false
